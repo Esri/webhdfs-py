@@ -5,6 +5,11 @@ import urlparse
 import json
 
 import logging
+__all__ = [
+    "WebHDFS",
+    ]
+
+
 logging.basicConfig(level=logging.DEBUG, datefmt='%m/%d/%Y %I:%M:%S %p',
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(name='webhdfs')
@@ -40,26 +45,26 @@ class WebHDFS(object):
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
         
-        
-    def rmdir(self, path):
-        url_path = WEBHDFS_CONTEXT_ROOT + path +'?op=DELETE&recursive=true&user.name='+self.username
+    def delete(self, path, recursive = False):
+        url_path = WEBHDFS_CONTEXT_ROOT + path +'?op=DELETE&recursive=' + ('true' if recursive else 'false') + '&user.name='+self.username
         logger.debug("Delete directory: " + url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('DELETE', url_path , headers={})
         response = httpClient.getresponse()
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
+        
+    def rmdir(self, path):
+        self.delete(path, recursive = True)
      
-     
-    def copyFromLocal(self, source_path, target_path, replication=1):
-        url_path = WEBHDFS_CONTEXT_ROOT + "/" + target_path + '?op=CREATE&overwrite=true&user.name='+self.username
+    def copyFromLocal(self, source_path, target_path, replication=1, overwrite=False):
+        url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=CREATE&overwrite=' + ('true' if overwrite else 'false') + '&user.name='+self.username
         
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('PUT', url_path , headers={})
         response = httpClient.getresponse()
-        logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
-        msg = response.msg
-        redirect_location = msg["location"]
+        logger.debug("HTTP Response: response.status = '%d',  response.reason = '%s', response.msg = '%s'"%(response.status, response.reason, response.msg))
+        redirect_location = response.msg["location"]
         logger.debug("HTTP Location: %s"%(redirect_location))
         result = urlparse.urlparse(redirect_location)
         redirect_host = result.netloc[:result.netloc.index(":")]
@@ -71,16 +76,16 @@ class WebHDFS(object):
         fileUploadClient = httplib.HTTPConnection(redirect_host, 
                                                   redirect_port, timeout=600)
         # This requires currently Python 2.6 or higher
-        fileUploadClient.request('PUT', redirect_path, open(source_path, "r").read(), headers={})
+        fileUploadClient.request('PUT', redirect_path, open(source_path, "rb"), headers={})
         response = fileUploadClient.getresponse()
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
         fileUploadClient.close()
-        return response.status
+        return response
         
         
-    def copyToLocal(self, source_path, target_path):
-        url_path = WEBHDFS_CONTEXT_ROOT + "/" + source_path+'?op=OPEN&overwrite=true&user.name='+self.username
+    def copyToLocal(self, source_path, target_path, overwrite=False):
+        url_path = WEBHDFS_CONTEXT_ROOT + source_path+'?op=OPEN&overwrite=' + ('true' if overwrite else 'false') + '&user.name='+self.username
         logger.debug("GET URL: %s"%url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('GET', url_path , headers={})
@@ -107,17 +112,23 @@ class WebHDFS(object):
             logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
             
             # Write data to file
-            target_file = open(target_path, "w")
-            target_file.write(response.read())
+            rcv_buf_size = 1024*1024
+            
+            target_file = open(target_path, "wb")
+            while True : 
+                resp = response.read(rcv_buf_size)
+                if len(resp) == 0 :
+                    break
+                target_file.write(resp)
+                
             target_file.close()
             fileDownloadClient.close()
         else:
-            target_file = open(target_path, "w")
+            target_file = open(target_path, "wb")
             target_file.close()
             
         httpClient.close()        
-        return response.status
-     
+        return response
      
     def listdir(self, path):
         url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
@@ -134,6 +145,15 @@ class WebHDFS(object):
             files.append(i["pathSuffix"])        
         httpClient.close()
         return files
+
+    def getHomeDir (self):
+        url_path = WEBHDFS_CONTEXT_ROOT + '?op=GETHOMEDIRECTORY&user.name='+self.username
+        httpClient = self.__getNameNodeHTTPClient()
+        httpClient.request('GET', url_path , headers={})
+        response = httpClient.getresponse()
+        data_dict = json.loads(response.read())
+        httpClient.close()
+        return data_dict['Path']
     
     def __getNameNodeHTTPClient(self):
         httpClient = httplib.HTTPConnection(self.namenode_host, 
@@ -142,17 +162,13 @@ class WebHDFS(object):
         return httpClient
     
     
+#if __name__ == "__main__":      
+    #webhdfs = WebHDFS("localhost", 50070, "luckow")
+    #webhdfs.mkdir("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/")
+    #webhdfs.copyFromLocal("/Users/luckow/workspace-saga/applications/pilot-store/test/data1/test1.txt", 
+                              #"/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt")
     
-if __name__ == "__main__":      
-    webhdfs = WebHDFS("localhost", 50070, "luckow")
-    webhdfs.mkdir("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/")
-    webhdfs.copyFromLocal("/Users/luckow/workspace-saga/applications/pilot-store/test/data1/test1.txt", 
-                              "/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt")
+    #webhdfs.copyToLocal("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt",
+                        #"/tmp/test1.txt")
     
-    webhdfs.copyToLocal("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt",
-                        "/tmp/test1.txt")
-    
-    webhdfs.listdir("/")
-        
-        
-        
+    #webhdfs.listdir("/")
