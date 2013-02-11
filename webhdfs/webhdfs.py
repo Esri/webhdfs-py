@@ -36,7 +36,7 @@ class WebHDFS(object):
         self.username = hdfs_username
         
     
-    def mkdir(self, path):
+    def mkDir(self, path):
         url_path = WEBHDFS_CONTEXT_ROOT + path +'?op=MKDIRS&user.name='+self.username
         logger.debug("Create directory: " + url_path)
         httpClient = self.__getNameNodeHTTPClient()
@@ -54,7 +54,7 @@ class WebHDFS(object):
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
         
-    def rmdir(self, path):
+    def rmDir(self, path):
         self.delete(path, recursive = True)
      
     def copyFromLocal(self, source_path, target_path, replication=1, overwrite=False):
@@ -130,7 +130,7 @@ class WebHDFS(object):
         httpClient.close()        
         return response
      
-    def listdir(self, path):
+    def listDir(self, path):
         url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
         logger.debug("List directory: " + url_path)
         httpClient = self.__getNameNodeHTTPClient()
@@ -145,6 +145,17 @@ class WebHDFS(object):
             files.append(i["pathSuffix"])        
         httpClient.close()
         return files
+
+    def listDirEx(self, path):
+        url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
+        logger.debug("List directory: " + url_path)
+        httpClient = self.__getNameNodeHTTPClient()
+        httpClient.request('GET', url_path , headers={})
+        response = httpClient.getresponse()
+        logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
+        data_dict = json.loads(response.read())
+        logger.debug("Data: " + str(data_dict))
+        return  data_dict["FileStatuses"]["FileStatus"]
 
     def getHomeDir (self):
         url_path = WEBHDFS_CONTEXT_ROOT + '?op=GETHOMEDIRECTORY&user.name='+self.username
@@ -162,13 +173,13 @@ class WebHDFS(object):
         return httpClient
     
     
-#if __name__ == "__main__":      
-    #webhdfs = WebHDFS("localhost", 50070, "luckow")
-    #webhdfs.mkdir("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/")
-    #webhdfs.copyFromLocal("/Users/luckow/workspace-saga/applications/pilot-store/test/data1/test1.txt", 
-                              #"/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt")
+if __name__ == "__main__":      
+    webhdfs = WebHDFS("localhost", 50070, "luckow")
+    webhdfs.mkdir("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/")
+    webhdfs.copyFromLocal("/Users/luckow/workspace-saga/applications/pilot-store/test/data1/test1.txt", 
+                              "/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt")
     
-    #webhdfs.copyToLocal("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt",
-                        #"/tmp/test1.txt")
+    webhdfs.copyToLocal("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt",
+                        "/tmp/test1.txt")
     
-    #webhdfs.listdir("/")
+    webhdfs.listdir("/")
