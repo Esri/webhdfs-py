@@ -5,8 +5,9 @@ import urlparse
 import json
 
 import logging
+
 __all__ = [
-    "WebHDFS",
+    "WebHDFS", "WebHDFSResponse"
     ]
 
 
@@ -57,9 +58,9 @@ class WebHDFS(object):
     def rmDir(self, path):
         self.delete(path, recursive = True)
      
-    def copyFromLocal(self, source_path, target_path, replication=1, overwrite=False):
-        url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=CREATE&overwrite=' + ('true' if overwrite else 'false') + '&user.name='+self.username
-        
+    def copyToHDFS(self, source_path, target_path, replication=1, overwrite=False):
+        url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=CREATE&overwrite=' + ('true' if overwrite else 'false') +\
+                                                        '&replication=' + str(replication) + '&user.name='+self.username
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('PUT', url_path , headers={})
         response = httpClient.getresponse()
@@ -70,7 +71,7 @@ class WebHDFS(object):
         redirect_host = result.netloc[:result.netloc.index(":")]
         redirect_port = result.netloc[(result.netloc.index(":")+1):]
         # Bug in WebHDFS 0.20.205 => requires param otherwise a NullPointerException is thrown
-        redirect_path = result.path + "?" + result.query + "&replication="+str(replication) 
+        redirect_path = result.path + "?" + result.query 
             
         logger.debug("Send redirect to: host: %s, port: %s, path: %s "%(redirect_host, redirect_port, redirect_path))
         fileUploadClient = httplib.HTTPConnection(redirect_host, 
@@ -82,10 +83,38 @@ class WebHDFS(object):
         httpClient.close()
         fileUploadClient.close()
         return response
+
+    def appendToHDFS(self, source_path, target_path):
+        url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=APPEND&user.name='+self.username
         
-        
-    def copyToLocal(self, source_path, target_path, overwrite=False):
-        url_path = WEBHDFS_CONTEXT_ROOT + source_path+'?op=OPEN&overwrite=' + ('true' if overwrite else 'false') + '&user.name='+self.username
+        httpClient = self.__getNameNodeHTTPClient()
+        httpClient.request('POST', url_path , headers={})
+        response = httpClient.getresponse()
+        logger.debug("HTTP Response: response.status = '%d',  response.reason = '%s', response.msg = '%s'"%(response.status, response.reason, response.msg))
+        redirect_location = response.msg["location"]
+        logger.debug("HTTP Location: %s"%(redirect_location))
+        result = urlparse.urlparse(redirect_location)
+        redirect_host = result.netloc[:result.netloc.index(":")]
+        redirect_port = result.netloc[(result.netloc.index(":")+1):]
+        # Bug in WebHDFS 0.20.205 => requires param otherwise a NullPointerException is thrown
+        redirect_path = result.path + "?" + result.query
+            
+        logger.debug("Send redirect to: host: %s, port: %s, path: %s "%(redirect_host, redirect_port, redirect_path))
+        fileUploadClient = httplib.HTTPConnection(redirect_host, 
+                                                  redirect_port, timeout=600)
+        # This requires currently Python 2.6 or higher
+        fileUploadClient.request('POST', redirect_path, open(source_path, "rb"), headers={})
+        response = fileUploadClient.getresponse()
+        logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
+        httpClient.close()
+        fileUploadClient.close()
+        return response
+
+    def copyFromHDFS(self, source_path, target_path, overwrite=False):
+        if os.path.isfile(target_path) and overwrite == False:
+            return WebHDFSResponse(403, 'File already exists')
+            
+        url_path = WEBHDFS_CONTEXT_ROOT + source_path+'?op=OPEN&user.name='+self.username
         logger.debug("GET URL: %s"%url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('GET', url_path , headers={})
@@ -172,14 +201,16 @@ class WebHDFS(object):
                                                        timeout=600)
         return httpClient
     
+class WebHDFSResponse(object):
+    def __init__(self, status, reason):
+        self.status = status
+        self.reason = reason
+    
     
 if __name__ == "__main__":      
-    webhdfs = WebHDFS("localhost", 50070, "luckow")
-    webhdfs.mkdir("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/")
-    webhdfs.copyFromLocal("/Users/luckow/workspace-saga/applications/pilot-store/test/data1/test1.txt", 
-                              "/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt")
-    
-    webhdfs.copyToLocal("/pilotstore-1/pd-9c2d42c4-30a3-11e1-bab1-00264a13ca4c/test1.txt",
-                        "/tmp/test1.txt")
-    
-    webhdfs.listdir("/")
+    webhdfs = WebHDFS("storm0", 50070, "azhigimont")
+    webhdfs.mkDir("/user/azhigimont/tmp")
+    webhdfs.copyToHDFS("c:/temp/test.json", "/user/azhigimont/tmp/test.json", overwrite = True)
+    webhdfs.copyFromHDFS("/user/azhigimont/tmp/test.json",  "c:/temp/test1.json", overwrite = True)
+    webhdfs.listDir("/user/azhigimont/tmp")
+    webhdfs.delete("/user/azhigimont/tmp", recursive = True)
