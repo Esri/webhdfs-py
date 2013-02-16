@@ -1,6 +1,6 @@
 # read and log the version of package
 import os
-from webhdfs import WebHDFS
+from webhdfs import WebHDFS, WebHDFSError
 
 version = "latest"
 

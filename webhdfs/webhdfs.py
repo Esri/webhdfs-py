@@ -3,11 +3,11 @@ import stat
 import httplib
 import urlparse
 import json
-
 import logging
 
 __all__ = [
-    "WebHDFS", "WebHDFSResponse"
+    "WebHDFS",
+    "WebHDFSError"
     ]
 
 
@@ -17,6 +17,10 @@ logger = logging.getLogger(name='webhdfs')
 
 WEBHDFS_CONTEXT_ROOT="/webhdfs/v1"
 
+
+######################################################################
+######################################################################
+######################################################################
 class WebHDFS(object):       
     """ Class for accessing HDFS via WebHDFS 
     
@@ -31,12 +35,14 @@ class WebHDFS(object):
         see: https://issues.apache.org/jira/secure/attachment/12500090/WebHdfsAPI20111020.pdf
     """
     
+    ######################################################################
     def __init__(self, namenode_host, namenode_port, hdfs_username):
         self.namenode_host=namenode_host
         self.namenode_port = namenode_port
         self.username = hdfs_username
         
     
+    ######################################################################
     def mkDir(self, path):
         url_path = WEBHDFS_CONTEXT_ROOT + path +'?op=MKDIRS&user.name='+self.username
         logger.debug("Create directory: " + url_path)
@@ -45,7 +51,9 @@ class WebHDFS(object):
         response = httpClient.getresponse()
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
+        CheckResponseError(response)
         
+    ######################################################################
     def delete(self, path, recursive = False):
         url_path = WEBHDFS_CONTEXT_ROOT + path +'?op=DELETE&recursive=' + ('true' if recursive else 'false') + '&user.name='+self.username
         logger.debug("Delete directory: " + url_path)
@@ -54,10 +62,13 @@ class WebHDFS(object):
         response = httpClient.getresponse()
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
+        CheckResponseError(response)
         
+    ######################################################################
     def rmDir(self, path):
         self.delete(path, recursive = True)
      
+    ######################################################################
     def copyToHDFS(self, source_path, target_path, replication=1, overwrite=False):
         url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=CREATE&overwrite=' + ('true' if overwrite else 'false') +\
                                                         '&replication=' + str(replication) + '&user.name='+self.username
@@ -82,8 +93,9 @@ class WebHDFS(object):
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
         fileUploadClient.close()
-        return response
+        CheckResponseError(response)
 
+    ######################################################################
     def appendToHDFS(self, source_path, target_path):
         url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=APPEND&user.name='+self.username
         
@@ -108,11 +120,12 @@ class WebHDFS(object):
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         httpClient.close()
         fileUploadClient.close()
-        return response
+        CheckResponseError(response)
 
+    ######################################################################
     def copyFromHDFS(self, source_path, target_path, overwrite=False):
         if os.path.isfile(target_path) and overwrite == False:
-            return WebHDFSResponse(403, 'File already exists')
+            raise WebHDFSError("File '" + target_path + "' already exists")
             
         url_path = WEBHDFS_CONTEXT_ROOT + source_path+'?op=OPEN&user.name='+self.username
         logger.debug("GET URL: %s"%url_path)
@@ -121,7 +134,7 @@ class WebHDFS(object):
         response = httpClient.getresponse()
         # if file is empty GET returns a response with length == NONE and
         # no msg["location"]
-        if response.length!=None:
+        if response.length != None:
             msg = response.msg
             redirect_location = msg["location"]
             logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
@@ -157,8 +170,9 @@ class WebHDFS(object):
             target_file.close()
             
         httpClient.close()        
-        return response
+        CheckResponseError(response)
      
+    ######################################################################
     def listDir(self, path):
         url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
         logger.debug("List directory: " + url_path)
@@ -167,14 +181,20 @@ class WebHDFS(object):
         response = httpClient.getresponse()
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         data_dict = json.loads(response.read())
-        logger.debug("Data: " + str(data_dict))
-        files=[]        
-        for i in data_dict["FileStatuses"]["FileStatus"]:
-            logger.debug(i["type"] + ": " + i["pathSuffix"]) 
-            files.append(i["pathSuffix"])        
         httpClient.close()
+        CheckResponseError(response)
+        
+        logger.debug("Data: " + str(data_dict))
+        files=[]      
+        try :
+            for i in data_dict["FileStatuses"]["FileStatus"]:
+                logger.debug(i["type"] + ": " + i["pathSuffix"]) 
+                files.append(i["pathSuffix"])        
+        except:
+            pass
         return files
 
+    ######################################################################
     def listDirEx(self, path):
         url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
         logger.debug("List directory: " + url_path)
@@ -183,9 +203,16 @@ class WebHDFS(object):
         response = httpClient.getresponse()
         logger.debug("HTTP Response: %d, %s"%(response.status, response.reason))
         data_dict = json.loads(response.read())
+        httpClient.close()
+        CheckResponseError(response)
+        
         logger.debug("Data: " + str(data_dict))
-        return  data_dict["FileStatuses"]["FileStatus"]
+        try :
+            return  data_dict["FileStatuses"]["FileStatus"]
+        except:
+            return  []
 
+    ######################################################################
     def getHomeDir (self):
         url_path = WEBHDFS_CONTEXT_ROOT + '?op=GETHOMEDIRECTORY&user.name='+self.username
         httpClient = self.__getNameNodeHTTPClient()
@@ -193,24 +220,49 @@ class WebHDFS(object):
         response = httpClient.getresponse()
         data_dict = json.loads(response.read())
         httpClient.close()
-        return data_dict['Path']
+        CheckResponseError(response)
+        
+        try :
+            return data_dict['Path']
+        except:
+            return ''
     
+    ######################################################################
     def __getNameNodeHTTPClient(self):
-        httpClient = httplib.HTTPConnection(self.namenode_host, 
-                                            self.namenode_port, 
-                                                       timeout=600)
+        httpClient = httplib.HTTPConnection(self.namenode_host, self.namenode_port, timeout=600)
         return httpClient
     
-class WebHDFSResponse(object):
-    def __init__(self, status, reason):
-        self.status = status
+    
+######################################################################
+######################################################################
+######################################################################
+class WebHDFSError(Exception):
+    reason = ''
+    def __init__(self, reason):
         self.reason = reason
-    
-    
-if __name__ == "__main__":      
-    webhdfs = WebHDFS("storm0", 50070, "azhigimont")
-    webhdfs.mkDir("/user/azhigimont/tmp")
-    webhdfs.copyToHDFS("c:/temp/test.json", "/user/azhigimont/tmp/test.json", overwrite = True)
-    webhdfs.copyFromHDFS("/user/azhigimont/tmp/test.json",  "c:/temp/test1.json", overwrite = True)
-    webhdfs.listDir("/user/azhigimont/tmp")
-    webhdfs.delete("/user/azhigimont/tmp", recursive = True)
+    def __str__(self):
+        return self.reason
+
+######################################################################
+def CheckResponseError(response):
+    if response != None and response.status >= 400 :
+        raise WebHDFSError('HTTP ERROR {0}. Reason: {1}'.format(response.status, response.reason))
+
+
+######################################################################
+######################################################################
+######################################################################
+if __name__ == '__main__':      
+    try:
+        webhdfs = WebHDFS('storm0', 50070, 'azhigimont')
+        webhdfs.mkDir('/user/azhigimont/tmp')
+        resp = webhdfs.copyToHDFS('c:/temp/test.json', '/user/azhigimont/tmp/test.json', overwrite = True)
+        webhdfs.copyFromHDFS('/user/azhigimont/tmp/test.json',  'c:/temp/test1.json', overwrite = True)
+        webhdfs.listDir('/user/azhigimont/tmp')
+        webhdfs.delete('/user/azhigimont/tmp', recursive = True)
+    except WebHDFSError as whe:
+        print whe
+    except:
+        print "Unexpected error:" + str(sys.exc_info())
+    else:
+        print '__main__ test completed without errors'
