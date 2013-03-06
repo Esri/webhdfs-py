@@ -173,6 +173,21 @@ class WebHDFS(object):
         CheckResponseError(response)
      
     ######################################################################
+    def getFileStatus (self, path):
+        url_path = WEBHDFS_CONTEXT_ROOT + path + '?op=GETFILESTATUS&user.name=' + self.username
+        httpClient = self.__getNameNodeHTTPClient()
+        httpClient.request('GET', url_path , headers={})
+        response = httpClient.getresponse()
+        data_dict = json.loads(response.read())
+        httpClient.close()
+        CheckResponseError(response)
+        
+        try :
+            return data_dict['FileStatus']
+        except:
+            return ''
+
+    ######################################################################
     def listDir(self, path):
         url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
         logger.debug("List directory: " + url_path)
