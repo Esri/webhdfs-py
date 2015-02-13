@@ -4,6 +4,7 @@ import httplib
 import urlparse
 import json
 import logging
+import urllib2 as urllib
 
 __all__ = [
     "WebHDFS",
@@ -44,7 +45,7 @@ class WebHDFS(object):
     
     ######################################################################
     def mkDir(self, path):
-        url_path = WEBHDFS_CONTEXT_ROOT + path +'?op=MKDIRS&user.name='+self.username
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(path) +'?op=MKDIRS&user.name='+self.username
         logger.debug("Create directory: " + url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('PUT', url_path , headers={})
@@ -55,7 +56,7 @@ class WebHDFS(object):
         
     ######################################################################
     def delete(self, path, recursive = False):
-        url_path = WEBHDFS_CONTEXT_ROOT + path +'?op=DELETE&recursive=' + ('true' if recursive else 'false') + '&user.name='+self.username
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(path) +'?op=DELETE&recursive=' + ('true' if recursive else 'false') + '&user.name='+self.username
         logger.debug("Delete directory: " + url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('DELETE', url_path , headers={})
@@ -70,7 +71,7 @@ class WebHDFS(object):
      
     ######################################################################
     def copyToHDFS(self, source_path, target_path, replication=1, overwrite=False):
-        url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=CREATE&overwrite=' + ('true' if overwrite else 'false') +\
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(target_path) + '?op=CREATE&overwrite=' + ('true' if overwrite else 'false') +\
                                                         '&replication=' + str(replication) + '&user.name='+self.username
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('PUT', url_path , headers={})
@@ -97,7 +98,7 @@ class WebHDFS(object):
 
     ######################################################################
     def appendToHDFS(self, source_path, target_path):
-        url_path = WEBHDFS_CONTEXT_ROOT + target_path + '?op=APPEND&user.name='+self.username
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(target_path) + '?op=APPEND&user.name='+self.username
         
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('POST', url_path , headers={})
@@ -127,7 +128,7 @@ class WebHDFS(object):
         if os.path.isfile(target_path) and overwrite == False:
             raise WebHDFSError("File '" + target_path + "' already exists")
             
-        url_path = WEBHDFS_CONTEXT_ROOT + source_path+'?op=OPEN&user.name='+self.username
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(source_path) +'?op=OPEN&user.name='+self.username
         logger.debug("GET URL: %s"%url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('GET', url_path , headers={})
@@ -174,7 +175,7 @@ class WebHDFS(object):
      
     ######################################################################
     def getFileStatus (self, path):
-        url_path = WEBHDFS_CONTEXT_ROOT + path + '?op=GETFILESTATUS&user.name=' + self.username
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(path) + '?op=GETFILESTATUS&user.name=' + self.username
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('GET', url_path , headers={})
         response = httpClient.getresponse()
@@ -189,7 +190,7 @@ class WebHDFS(object):
 
     ######################################################################
     def listDir(self, path):
-        url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(path) +'?op=LISTSTATUS&user.name='+self.username
         logger.debug("List directory: " + url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('GET', url_path , headers={})
@@ -211,7 +212,7 @@ class WebHDFS(object):
 
     ######################################################################
     def listDirEx(self, path):
-        url_path = WEBHDFS_CONTEXT_ROOT +path+'?op=LISTSTATUS&user.name='+self.username
+        url_path = WEBHDFS_CONTEXT_ROOT + urllib.quote(path) +'?op=LISTSTATUS&user.name='+self.username
         logger.debug("List directory: " + url_path)
         httpClient = self.__getNameNodeHTTPClient()
         httpClient.request('GET', url_path , headers={})
@@ -269,12 +270,17 @@ def CheckResponseError(response):
 ######################################################################
 if __name__ == '__main__':      
     try:
-        webhdfs = WebHDFS('storm0', 50070, 'azhigimont')
-        webhdfs.mkDir('/user/azhigimont/tmp')
-        resp = webhdfs.copyToHDFS('c:/temp/test.json', '/user/azhigimont/tmp/test.json', overwrite = True)
-        webhdfs.copyFromHDFS('/user/azhigimont/tmp/test.json',  'c:/temp/test1.json', overwrite = True)
-        webhdfs.listDir('/user/azhigimont/tmp')
-        webhdfs.delete('/user/azhigimont/tmp', recursive = True)
+        server_name = 'dredd10'
+        user_name = 'hdfs'
+        user_path = '/user/' + user_name + '/'
+        temp_path = user_path + 'tmp tmp/'
+
+        webhdfs = WebHDFS(server_name, 50070, user_name)
+        webhdfs.mkDir(temp_path)
+        resp = webhdfs.copyToHDFS('c:/temp/test.json', temp_path + 'test.json', overwrite = True)
+        webhdfs.copyFromHDFS(temp_path + 'test.json',  'c:/temp/test1.json', overwrite = True)
+        webhdfs.listDir(temp_path)
+        webhdfs.delete(temp_path, recursive = True)
     except WebHDFSError as whe:
         print whe
     except:
